@@ -1,0 +1,15 @@
+{
+  "token": "8219036261:AAEvyv4y3oEqdbqY",
+  "prefix": "/",
+  "owner_id": 6892510835,
+  "owner_name": "JOY AHMED",
+  "bot_name": "JOY-TG-BOT",
+  "greetNewMembers": {
+    "enabled": true,
+    "gifUrl": "https://i.imgur.com/fVMh6gO.gif"
+  },
+  "autoUpdate": {
+    "enabled": true,
+    "repo": "JOY/TG-BOT"
+  }
+}
