@@ -1,107 +1,81 @@
 const axios = require("axios");
 const yts = require("yt-search");
-const fs = require("fs");
+const fs = require("fs-extra");
 const path = require("path");
-
-async function getAPI() {
-  try {
-    const res = await axios.get(
-      "https://raw.githubusercontent.com/JUBAED-AHMED-JOY/Joy/main/api.json"
-    );
-    return res.data;
-  } catch (err) {
-    console.error("API JSON Error:", err.message);
-    return null;
-  }
-}
+const { downloadVideo } = require("joy-video-downloader");
 
 module.exports = {
   config: {
     name: "video",
-    version: "2.1.0",
-    credits: "Joy",
+    aliases: ["ytvideo"],
+    usePrefix: true,
     role: 0,
+    author: "Joy",
+    description: "Download Video from YouTube or Search",
     category: "media",
-    description: "Download YouTube Video",
-    cooldown: 5
+    usages: "/video <name / link>",
+    cooldown: 10
   },
 
-  onStart: async function ({ bot, chatId, args, msg }) {
-
+  onStart: async function ({ bot, chatId, event, args }) {
     if (!args.length) {
-      return bot.sendMessage(
-        chatId,
-        "⚠️ Video name or YouTube link dao.",
-        { reply_to_message_id: msg.message_id }
-      );
-    }
-
-    const apis = await getAPI();
-    if (!apis || !apis.Yt) {
-      return bot.sendMessage(chatId, "❌ API load korte parlam na.");
+      return bot.sendMessage(chatId, "⚠️ ভিডিওর নাম বা লিঙ্ক দিন।", {
+        reply_to_message_id: event.messageID
+      });
     }
 
     let query = args.join(" ");
-    let ytLink = query;
+    let videoLink = query;
 
     try {
-
-      // 🔎 Search if not YouTube link
-      if (!query.includes("youtu")) {
+      // 🔍 YouTube search
+      if (!videoLink.includes("youtu")) {
         const search = await yts(query);
-        if (!search.videos.length) {
-          return bot.sendMessage(chatId, "❌ Video khuje pai nai.");
+        if (!search || !search.videos.length) {
+          return bot.sendMessage(chatId, "❌ ভিডিও পাওয়া যায়নি!", {
+            reply_to_message_id: event.messageID
+          });
         }
-        ytLink = search.videos[0].url;
+        videoLink = search.videos[0].url;
       }
 
-      const loadingMsg = await bot.sendMessage(chatId, "⏳ Downloading video...");
+      // ⏳ loading message
+      const loading = await bot.sendMessage(chatId, "⏳ ভিডিও ডাউনলোড হচ্ছে...", {
+        reply_to_message_id: event.messageID
+      });
 
-      // 🔥 API Call (mp4 endpoint)
-      const apiURL = `${apis.Yt}/joy/mp4?url=${encodeURIComponent(ytLink)}`;
-      const apiRes = await axios.get(apiURL);
+      // 📁 cache folder
+      const cacheDir = path.join(__dirname, "cache");
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir);
 
-      const data = apiRes.data?.data || apiRes.data;
-      const title = data?.title || "YouTube Video";
-      const dl =
-        data?.url ||
-        data?.downloadUrl ||
-        data?.link;
+      const filePath = path.join(cacheDir, `video_${Date.now()}.mp4`);
 
-      if (!dl) {
-        await bot.deleteMessage(chatId, loadingMsg.message_id);
-        return bot.sendMessage(chatId, "❌ Video download link pai nai.");
+      // 🎬 download
+      const data = await downloadVideo(videoLink, filePath);
+
+      if (!data || !fs.existsSync(filePath)) {
+        await bot.deleteMessage(chatId, loading.message_id);
+        return bot.sendMessage(chatId, "❌ ভিডিও ডাউনলোড করা যায়নি!", {
+          reply_to_message_id: event.messageID
+        });
       }
 
-      // 📦 Temp file path
-      const filePath = path.join(__dirname, `video_${Date.now()}.mp4`);
+      // ✅ success
+      await bot.deleteMessage(chatId, loading.message_id);
 
-      const videoBuffer = await axios.get(dl, { responseType: "arraybuffer" });
-      fs.writeFileSync(filePath, videoBuffer.data);
+      await bot.sendVideo(chatId, filePath, {
+        caption: `🎬 ${data.title || "Video"}`
+      });
 
-      await bot.deleteMessage(chatId, loadingMsg.message_id);
-
-      // 🔥 Clean filename
-      const cleanTitle = title.replace(/[\\/:*?"<>|]/g, "");
-
-      // 🎬 Send Video with real name
-      await bot.sendVideo(
-        chatId,
-        fs.createReadStream(filePath),
-        {
-          caption: `🎬 ${title}\n✅ Video Ready`
-        },
-        {
-          filename: `${cleanTitle}.mp4`,
-          contentType: "video/mp4"
-        }
-      );
-
-      fs.unlinkSync(filePath);
+      // 🧹 delete file
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
     } catch (err) {
-      console.error("Video Error:", err);
-      return bot.sendMessage(chatId, "❌ MP4 Download Failed.");
+      console.error("Video error:", err.message);
+
+      bot.sendMessage(chatId, "❌ ভিডিও ডাউনলোড করতে সমস্যা হয়েছে!", {
+        reply_to_message_id: event.messageID
+      });
     }
   }
 };
