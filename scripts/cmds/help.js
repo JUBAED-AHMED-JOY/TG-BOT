@@ -4,11 +4,11 @@ const path = require('path');
 module.exports = {
   config: {
     name: 'help',
-    version: '2.1',
+    version: '2.5',
     author: 'Joy',
     cooldown: 3,
     role: 0,
-    description: 'Display all commands or get info about a specific command',
+    description: 'Interactive help menu with buttons',
     category: 'info',
     usePrefix: true
   },
@@ -19,25 +19,33 @@ module.exports = {
       const commandsDir = path.join(__dirname, '.');
       const files = fs.readdirSync(commandsDir).filter(file => file.endsWith('.js'));
 
-      const categories = {};
-      const commandsList = {};
+      const commandsList = [];
 
       for (const file of files) {
         try {
           delete require.cache[require.resolve(path.join(commandsDir, file))];
           const cmd = require(path.join(commandsDir, file));
           if (cmd.config && cmd.config.name) {
-            const category = cmd.config.category || 'Uncategorized';
-            if (!categories[category]) categories[category] = [];
-            categories[category].push(cmd.config.name);
-            commandsList[cmd.config.name.toLowerCase()] = cmd.config;
+            commandsList.push(cmd.config);
           }
         } catch (e) {}
       }
 
+      const formatCommand = (index, cmd) => {
+        const roleText = cmd.role === 2 ? 'Bot Admin' : cmd.role === 1 ? 'Group Admin' : 'Everyone';
+        const aliases = cmd.aliases && cmd.aliases.length ? cmd.aliases.join(', ') : 'None';
+        const author = cmd.author || 'Unknown';
+        return `**${index}. /${cmd.name}**
+📌 Description: ${cmd.description || 'No description'}
+👤 Role: ✅ ${roleText}
+📝 Aliases: ${aliases}
+👑 Author: ${author}\n`;
+      };
+
       if (args && args.length > 0 && args[0]) {
+        // Single command info
         const commandName = args[0].toLowerCase();
-        const cmdConfig = commandsList[commandName];
+        const cmdConfig = commandsList.find(c => c.name.toLowerCase() === commandName);
 
         if (!cmdConfig) {
           return bot.sendMessage(chatId, `❌ Command '${commandName}' not found.`, {
@@ -46,46 +54,76 @@ module.exports = {
         }
 
         const roleText = cmdConfig.role === 2 ? 'Bot Admin' : cmdConfig.role === 1 ? 'Group Admin' : 'Everyone';
+        const aliases = cmdConfig.aliases && cmdConfig.aliases.length ? cmdConfig.aliases.join(', ') : 'None';
+        const author = cmdConfig.author || 'Unknown';
 
-        let response = `╔═══ COMMAND INFO ═══╗\n\n`;
-        response += `📌 Name: ${cmdConfig.name}\n`;
-        response += `📝 Description: ${cmdConfig.description || 'No description'}\n`;
-        response += `👤 Author: ${cmdConfig.author || 'Unknown'}\n`;
-        response += `📂 Category: ${cmdConfig.category || 'Uncategorized'}\n`;
-        response += `🛡️ Role: ${roleText}\n`;
-        response += `⏱️ Cooldown: ${cmdConfig.cooldown || 0}s\n`;
-        response += `💡 Usage: ${config.prefix}${cmdConfig.name}\n`;
-        response += `\n╚═══════════════════╝`;
+        const response = `📜 **Command Info**
+/${cmdConfig.name}
+📌 Description: ${cmdConfig.description || 'No description'}
+👤 Role: ✅ ${roleText}
+📝 Aliases: ${aliases}
+👑 Author: ${author}
+💡 Usage: ${config.prefix}${cmdConfig.name}`;
 
         return bot.sendMessage(chatId, response, {
+          parse_mode: 'Markdown',
           reply_markup: { inline_keyboard: [[{ text: "JOY AHMED", url: "https://t.me/JOY_AHMED_88" }]] }
         });
       } else {
-        let helpMsg = `╔════════════════════╗\n`;
-        helpMsg += `   🍉 JOY BOT 🍉\n`;
-        helpMsg += `╚════════════════════╝\n\n`;
+        // Paginated list
+        const pageSize = 5;
+        const totalPages = Math.ceil(commandsList.length / pageSize);
 
-        const sortedCategories = Object.keys(categories).sort();
-        for (const category of sortedCategories) {
-          helpMsg += `\n╭─ ${category.toUpperCase()} ─╮\n`;
-          const cmds = categories[category].sort();
-          for (let i = 0; i < cmds.length; i += 3) {
-            const row = cmds.slice(i, i + 3).map(c => `• ${c}`).join(' ');
-            helpMsg += `│ ${row}\n`;
-          }
-          helpMsg += `╰${'─'.repeat(category.length + 4)}╯\n`;
-        }
+        const sendPage = (page = 1) => {
+          const start = (page - 1) * pageSize;
+          const end = start + pageSize;
+          const pageCommands = commandsList.slice(start, end);
 
-        const totalCommands = Object.keys(commandsList).length;
-        helpMsg += `\n╭─ BOT INFO ─╮\n`;
-        helpMsg += `│ 📜 Total: ${totalCommands} commands\n`;
-        helpMsg += `│ 💡 Usage: ${config.prefix}help <cmd>\n`;
-        helpMsg += `│ 👑 Created by: Joy Ahmed\n`;
-        helpMsg += `│ 🌐 Telegram: t.me/JOY_AHMED_88\n`;
-        helpMsg += `╰──────────────╯`;
+          let msgText = `📜 **Help Menu (Page ${page}/${totalPages})**\n\n`;
+          pageCommands.forEach((cmd, i) => {
+            msgText += formatCommand(start + i + 1, cmd);
+          });
+          msgText += `💡 Use buttons below to navigate pages.`;
 
-        return bot.sendMessage(chatId, helpMsg, {
-          reply_markup: { inline_keyboard: [[{ text: "JOY AHMED", url: "https://t.me/JOY_AHMED_88" }]] }
+          const buttons = [];
+          if (page > 1) buttons.push({ text: '⬅️ Prev', callback_data: `help_page_${page-1}` });
+          if (page < totalPages) buttons.push({ text: 'Next ➡️', callback_data: `help_page_${page+1}` });
+
+          bot.sendMessage(chatId, msgText, {
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [buttons, [{ text: "JOY AHMED", url: "https://t.me/JOY_AHMED_88" }]] }
+          });
+        };
+
+        sendPage();
+
+        bot.on('callback_query', async (query) => {
+          if (!query.data.startsWith('help_page_')) return;
+          const page = parseInt(query.data.split('_').pop());
+          if (!page || page < 1) return;
+
+          const start = (page - 1) * pageSize;
+          const end = start + pageSize;
+          const pageCommands = commandsList.slice(start, end);
+
+          let msgText = `📜 **Help Menu (Page ${page}/${totalPages})**\n\n`;
+          pageCommands.forEach((cmd, i) => {
+            msgText += formatCommand(start + i + 1, cmd);
+          });
+          msgText += `💡 Use buttons below to navigate pages.`;
+
+          const buttons = [];
+          if (page > 1) buttons.push({ text: '⬅️ Prev', callback_data: `help_page_${page-1}` });
+          if (page < totalPages) buttons.push({ text: 'Next ➡️', callback_data: `help_page_${page+1}` });
+
+          bot.editMessageText(msgText, {
+            chat_id: query.message.chat.id,
+            message_id: query.message.message_id,
+            parse_mode: 'Markdown',
+            reply_markup: { inline_keyboard: [buttons, [{ text: "JOY AHMED", url: "https://t.me/JOY_AHMED_88" }]] }
+          });
+
+          bot.answerCallbackQuery(query.id);
         });
       }
     } catch (error) {
