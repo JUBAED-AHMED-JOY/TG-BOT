@@ -1,108 +1,82 @@
 const axios = require("axios");
 const yts = require("yt-search");
-const fs = require("fs");
+const fs = require("fs-extra");
 const path = require("path");
-
-async function getAPI() {
-  try {
-    const res = await axios.get(
-      "https://raw.githubusercontent.com/JUBAED-AHMED-JOY/Joy/main/api.json"
-    );
-    return res.data;
-  } catch (err) {
-    console.error("Failed to fetch API JSON:", err.message);
-    return null;
-  }
-}
+const { downloadVideo } = require("joy-video-downloader");
 
 module.exports = {
   config: {
     name: "song",
-    version: "6.2.0",
-    credits: "Joy",
+    aliases: [],
+    usePrefix: true,
     role: 0,
-    category: "media",
-    description: "Download song MP3",
-    cooldown: 5
+    author: "JOY AHMED",
+    description: "Download MP3 using joy-video-downloader"
   },
 
-  onStart: async function ({ bot, chatId, args, msg }) {
-
+  onStart: async function ({ bot, chatId, event, args }) {
     if (!args.length) {
-      return bot.sendMessage(
-        chatId,
-        "⚠️ Song name or YouTube link dao.",
-        { reply_to_message_id: msg.message_id }
-      );
-    }
-
-    const apis = await getAPI();
-    if (!apis || !apis.Yt) {
-      return bot.sendMessage(chatId, "❌ API load korte parlam na.");
+      return bot.sendMessage(chatId, "⚠️ গানের নাম অথবা ইউটিউব লিঙ্ক দাও।", {
+        reply_to_message_id: event.messageID
+      });
     }
 
     let query = args.join(" ");
     let ytLink = query;
 
     try {
-
-      // 🔎 Search if not YouTube link
-      if (!query.includes("youtu")) {
+      // 🔍 YouTube search
+      if (!ytLink.includes("youtu")) {
         const search = await yts(query);
         if (!search.videos.length) {
-          return bot.sendMessage(chatId, "❌ Song khuje pai nai.");
+          return bot.sendMessage(chatId, "❌ গানটি খুঁজে পাওয়া যায়নি।", {
+            reply_to_message_id: event.messageID
+          });
         }
         ytLink = search.videos[0].url;
       }
 
-      const loadingMsg = await bot.sendMessage(chatId, "⏳ Downloading song...");
+      // ⏳ loading message
+      const loadingMsg = await bot.sendMessage(chatId, "⏳ গানটি প্রসেসিং হচ্ছে...", {
+        reply_to_message_id: event.messageID
+      });
 
-      // 🔥 API Call
-      const apiRes = await axios.get(
-        `${apis.Yt}/joy/mp3?url=${encodeURIComponent(ytLink)}`
-      );
+      // 📁 cache folder
+      const cacheDir = path.resolve(__dirname, "cache");
+      if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
 
-      const data = apiRes.data?.data;
-      const title = data?.title || "Joy Song";
-      const dl =
-        data?.url ||
-        data?.downloadUrl ||
-        data?.link;
+      const filePath = path.join(cacheDir, `song_${Date.now()}.mp3`);
 
-      if (!dl) {
+      // 🎵 download
+      const data = await downloadVideo(ytLink, filePath);
+
+      if (!data || !data.filePath) {
         await bot.deleteMessage(chatId, loadingMsg.message_id);
-        return bot.sendMessage(chatId, "❌ Download link pai nai.");
+        return bot.sendMessage(chatId, "❌ গানটি ডাউনলোড করা সম্ভব হয়নি!", {
+          reply_to_message_id: event.messageID
+        });
       }
 
-      // 📥 Download temporary file
-      const filePath = path.join(__dirname, `temp_${Date.now()}.mp3`);
-      const response = await axios.get(dl, { responseType: "arraybuffer" });
-      fs.writeFileSync(filePath, response.data);
+      const title = data.title || "Unknown";
 
+      // 🧹 remove loading msg
       await bot.deleteMessage(chatId, loadingMsg.message_id);
 
-      // 🔥 Clean filename (invalid char remove)
-      const cleanTitle = title.replace(/[\\/:*?"<>|]/g, "");
+      // 🎧 send audio
+      await bot.sendAudio(chatId, fs.createReadStream(data.filePath), {
+        caption: `🎵 গান: ${title}\n✅ ডাউনলোড সম্পন্ন।`,
+        reply_to_message_id: event.messageID
+      });
 
-      // 🎵 Send Audio with real song name
-      await bot.sendAudio(
-        chatId,
-        fs.createReadStream(filePath),
-        {
-          caption: `🎵 ${title}\n✅ MP3 Ready`
-        },
-        {
-          filename: `${cleanTitle}.mp3`,
-          contentType: "audio/mpeg"
-        }
-      );
+      // 🗑️ delete file
+      if (fs.existsSync(data.filePath)) fs.unlinkSync(data.filePath);
 
-      // 🗑 Delete temp file
-      fs.unlinkSync(filePath);
+    } catch (error) {
+      console.error("SONG ERROR:", error.message);
 
-    } catch (err) {
-      console.error(err);
-      return bot.sendMessage(chatId, "❌ MP3 Download Failed.");
+      return bot.sendMessage(chatId, "❌ ডাউনলোড করার সময় সমস্যা হয়েছে!", {
+        reply_to_message_id: event.messageID
+      });
     }
   }
 };
