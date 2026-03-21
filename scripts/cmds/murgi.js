@@ -3,7 +3,7 @@ module.exports = {
     name: "murgi",
     version: "1.2.1",
     author: "JOY",
-    role: 0,
+    role: 2,
     cooldown: 5,
     description: "Reply or tag someone to roast with full list",
     category: "fun",
