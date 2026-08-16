@@ -34,7 +34,7 @@ module.exports = {
     try {
       // API URL fetch
       const apis = await axios.get(
-        "https://raw.githubusercontent.com/MOHAMMAD-NAYAN-07/Nayan/main/api.json"
+        "https://raw.githubusercontent.com/JUBAED-AHMED-JOY/Joy/main/api.json"
       );
       const apiurl = apis.data.api;
 
